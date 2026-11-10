@@ -1,0 +1,26 @@
+import sys
+import boto3
+
+MODEL_ID = "amazon.nova-micro-v1:0"
+
+if len(sys.argv) < 2:
+    print("Usage: python summarize.py <file.txt>")
+    sys.exit(1)
+
+with open(sys.argv[1], "r") as f:
+    text = f.read()
+
+client = boto3.client("bedrock-runtime", region_name="us-east-1")
+
+response = client.converse(
+    modelId=MODEL_ID,
+    messages=[
+        {
+            "role": "user",
+            "content": [{"text": "Summarize this in 3 bullet points:\n\n" + text}],
+        }
+     ],
+     inferenceConfig={"maxTokens": 300},
+ )
+
+print(response["output"]["message"]["content"][0]["text"])
