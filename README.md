@@ -1,26 +1,29 @@
-# Bedrock Hello – Python, Amazon Bedrock and Docker
+# Bedrock Hello
 
-A small Python application that sends a prompt to Amazon Bedrock using the Converse API and prints the response from Amazon Nova Micro.
+A Python application that sends a prompt to Amazon Bedrock using the Amazon Nova Micro model and prints the response.
 
-This project explores Python, AWS SDK integration, Docker containerisation and container security.
+This project explores how to build, containerize, and securely run a Python application using Docker and AWS credentials.
 
-## Project objectives
+## Project Objectives
 
-- Connect a Python application to Amazon Bedrock using boto3.
-- Use the Bedrock Converse API to send prompts and receive responses.
-- Containerise the application using Docker.
-- Apply the principle of least privilege by running the container as a non-root user.
-- Handle AWS credentials securely without baking them into the Docker image.
+- Connect a Python application to Amazon Bedrock.
+- Use the Amazon Bedrock Converse API.
+- Package the application into a Docker image.
+- Run the container as a non-root user.
+- Understand how AWS credentials are accessed inside containers.
+- Apply security practices when building and running Docker containers.
 
-## Technologies used
+## Technologies Used
 
 - Python 3.12
-- Amazon Bedrock (Nova Micro)
-- AWS SDK for Python (boto3)
+- Amazon Bedrock
+- Amazon Nova Micro
+- Boto3
 - Docker
-- Linux
+- Git and GitHub
+- Ubuntu on WSL
 
-## Running locally
+## Running Locally
 
 Create and activate a virtual environment:
 
@@ -35,107 +38,107 @@ Install dependencies:
 pip install boto3
 ```
 
-Configure AWS credentials and ensure your account has access to the selected Bedrock model in `us-east-1`.
-
-Run the application:
+Configure AWS credentials using an appropriate AWS credential provider, then run:
 
 ```bash
 python hello.py
 ```
 
-## Running with Docker
+The application requires access to Amazon Bedrock and permission to invoke the selected model in the configured AWS region.
 
-Build the Docker image:
+## Building the Docker Image
+
+Build the image:
 
 ```bash
 docker build -t bedrock-hello .
 ```
 
-The Dockerfile:
-- Uses the Python 3.12 slim image.
-- Installs boto3.
-- Creates a dedicated Linux user called `appuser`.
-- Assigns ownership of the application script to `appuser`.
-- Uses `USER appuser` to run the application without root privileges.
+Run the container:
 
-Verify the configured user:
+```bash
+docker run --rm bedrock-hello
+```
+
+The application uses AWS credentials supplied at runtime.
+
+## Docker Security: Running as a Non-Root User
+
+Initially, the container ran as the root user.
+
+I updated the Dockerfile to:
+
+- Create a dedicated Linux user called `appuser`.
+- Copy the application into the image with the correct ownership.
+- Switch to `appuser` using the Docker `USER` instruction.
+
+This ensures that the application does not run as root inside the container.
+
+To verify the configured user:
 
 ```bash
 docker image inspect bedrock-hello --format '{{.Config.User}}'
 ```
 
-Expected output:
-
-```text
-appuser
-```
-
-## AWS credentials and container security
-
-Initially, the container could not locate AWS credentials.
-
-After switching from root to `appuser`, another issue appeared: the mounted AWS credential files were owned by root and had restrictive `600` permissions.
-
-The non-root user could not read them.
-
-Rather than making the credentials world-readable, I created a temporary copy, assigned it to the container user's UID and mounted it read-only.
-
-Example:
+To inspect the container's user identity:
 
 ```bash
-aws_tmp=$(mktemp -d)
-trap 'rm -rf "$aws_tmp"' EXIT
-
-cp -a ~/.aws/. "$aws_tmp/"
-chown -R 1000:1000 "$aws_tmp"
-chmod 700 "$aws_tmp"
-
-docker run --rm \
-  -v "$aws_tmp:/home/appuser/.aws:ro" \
-  bedrock-hello
+docker run --rm --entrypoint id bedrock-hello
 ```
 
-The application successfully called Amazon Bedrock while running as `appuser`.
+The output confirmed that the application runs as UID 1000 (`appuser`).
 
-The temporary credentials directory was removed after testing.
+## AWS Credentials Inside Docker
 
-**Security note:** AWS credentials should never be copied into a Docker image or committed to GitHub. For production workloads, prefer an appropriate IAM role or secure workload credential provider rather than copying long-lived credentials.
+After switching to a non-root user, the application initially failed with a `NoCredentialsError`.
 
-## Security practices applied
+The problem was not the Python application or Docker image. The AWS credentials were stored in files owned by root with restrictive permissions, so the non-root container user could not read them.
 
-- Run containers as non-root users.
-- Apply the principle of least privilege.
-- Mount credentials read-only when required.
-- Exclude sensitive files using `.gitignore` and `.dockerignore`.
-- Avoid embedding AWS credentials in Docker images.
+For this demonstration, I tested a temporary credential-copy approach:
 
-## What I learned
+1. Copied the AWS configuration and credentials into a temporary directory.
+2. Changed ownership of the temporary copies to UID 1000.
+3. Restricted directory permissions.
+4. Mounted the directory into the container as read-only.
+5. Ran the application successfully.
+6. Removed the temporary credential directory.
 
-- The Bedrock Converse API provides a consistent interface for interacting with supported models.
-- The API parameter is `modelId`.
-- boto3 reports errors when an invalid model identifier is supplied.
-- Docker images package applications and their runtime dependencies.
-- Changing the Docker user affects access to mounted files.
-- Linux file ownership and permissions matter inside containers.
-- Security improvements can introduce new access issues that need to be investigated and tested.
+This helped demonstrate how Linux file ownership and permissions affect access inside containers.
 
-## Project structure
+**Important:** This was a learning workaround, not a recommended production credential-management strategy. In production, use IAM roles, workload identity, or another secure AWS credential provider rather than copying long-lived credentials.
 
-```text
-bedrock-hello/
-├── Dockerfile
-├── .dockerignore
-├── .gitignore
-├── hello.py
-├── README.md
-└── notes.txt
-```
+## Security Practices
 
-## Future improvements
+The project uses `.gitignore` and `.dockerignore` to exclude sensitive or unnecessary files, including:
 
-- Add automated Docker builds using GitHub Actions.
-- Improve image size and dependency management.
-- Explore IAM roles and more secure AWS credential delivery.
+- `.aws/`
+- `.env` files
+- Credential files
+- Private keys
+- Python virtual environments
+- Git metadata
+
+AWS credentials and secrets should never be copied into a Docker image or committed to a public GitHub repository.
+
+## What
+
+## What I Learned
+
+- How to call Amazon Bedrock using Boto3 and the Converse API.
+- How to build and run a Docker image.
+- Why containers should run as non-root users.
+- How Linux ownership and file permissions affect container access.
+- Why a container may fail to access AWS credentials even when they work on the host.
+- Why credentials should be supplied securely at runtime.
+- How `.gitignore` and `.dockerignore` help protect sensitive files.
+
+## Future Improvements
+
+- Use IAM roles or another secure credential provider for container execution.
 - Add automated tests.
+- Add a CI/CD workflow using GitHub Actions.
+- Explore deploying the application to AWS.
 
-This is a hands-on learning project documenting my journey with AWS, Python, Docker and cloud security.
+## Author
+
+Bobo-ops01
