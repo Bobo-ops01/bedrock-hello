@@ -94,6 +94,10 @@ After switching to a non-root user, the application initially failed with a `NoC
 
 The problem was not the Python application or Docker image. The AWS credentials were stored in files owned by root with restrictive permissions, so the non-root container user could not read them.
 
+## What I tried first
+
+My first version copied my AWS config and credentials into a temporary folder, and mounted that into the container. The copy contained my admin credentials, so the container could do far more than it needed.
+
 For this demonstration, I tested a temporary credential-copy approach:
 
 1. Copied the AWS configuration and credentials into a temporary directory.
@@ -106,6 +110,18 @@ For this demonstration, I tested a temporary credential-copy approach:
 This helped demonstrate how Linux file ownership and permissions affect access inside containers.
 
 **Important:** This was a learning workaround, not a recommended production credential-management strategy. In production, use IAM roles, workload identity, or another secure AWS credential provider rather than copying long-lived credentials.
+
+## Running with a least-privilege role
+
+The temporary copy contained my admin credentials, so the container could do far more than it needed. A better way is to pass short-lived credentials from a role that can only call one Bedrock model:
+
+```bash
+eval "$(aws configure export-credentials --profile bedrock-role --format env)"
+docker run --rm -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN bedrock-hello
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+```
+
+The role is built in my [terraform-bedrock-iam](https://github.com/Bobo-ops01/terraform-bedrock-iam) project. The credentials expire after about an hour, and my admin keys never enter the container.
 
 ## Security Practices
 
@@ -120,10 +136,9 @@ The project uses `.gitignore` and `.dockerignore` to exclude sensitive or unnece
 
 AWS credentials and secrets should never be copied into a Docker image or committed to a public GitHub repository.
 
-## What
-
 ## What I Learned
 
+- Why a container should run with a limited role, not admin keys.
 - How to call Amazon Bedrock using Boto3 and the Converse API.
 - How to build and run a Docker image.
 - Why containers should run as non-root users.
@@ -134,11 +149,10 @@ AWS credentials and secrets should never be copied into a Docker image or commit
 
 ## Future Improvements
 
-- Use IAM roles or another secure credential provider for container execution.
+- Run the container on AWS with an attached IAM role, so no credentials need to be passed in.
 - Add automated tests.
 - Add a CI/CD workflow using GitHub Actions.
-- Explore deploying the application to AWS.
 
 ## Author
 
-Bobo-ops01
+Grace King'ori
